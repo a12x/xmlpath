@@ -6,6 +6,12 @@ import (
 	"unicode/utf8"
 )
 
+// Namespace represents a given XML Namespace
+type Namespace struct {
+	Prefix string
+	Uri    string
+}
+
 // Path is a compiled path that can be applied to a context
 // node to obtain a matching node set.
 // A single Path can be applied concurrently to any number
@@ -339,17 +345,19 @@ type pathPredicate struct {
 }
 
 type pathStep struct {
-	root bool
-	axis string
-	name string
-	kind nodeKind
-	pred *pathPredicate
+	root   bool
+	axis   string
+	name   string
+	prefix string
+	uri    string
+	kind   nodeKind
+	pred   *pathPredicate
 }
 
 func (step *pathStep) match(node *Node) bool {
 	return node.kind != endNode &&
 		(step.kind == anyNode || step.kind == node.kind) &&
-		(step.name == "*" || node.name.Local == step.name)
+		(step.name == "*" || (node.name.Local == step.name && (node.name.Space != "" && node.name.Space == step.uri || node.name.Space == "")))
 }
 
 // MustCompile returns the compiled path, and panics if
@@ -364,7 +372,20 @@ func MustCompile(path string) *Path {
 
 // Compile returns the compiled path.
 func Compile(path string) (*Path, error) {
-	c := pathCompiler{path, 0}
+	c := pathCompiler{path, 0, []Namespace{} }
+	if path == "" {
+		return nil, c.errorf("empty path")
+	}
+	p, err := c.parsePath()
+	if err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+// Compile the path with the knowledge of the given namespaces
+func CompileWithNamespace(path string, ns []Namespace) (*Path, error) {
+	c := pathCompiler{path, 0, ns}
 	if path == "" {
 		return nil, c.errorf("empty path")
 	}
@@ -378,6 +399,7 @@ func Compile(path string) (*Path, error) {
 type pathCompiler struct {
 	path  string
 	i     int
+	ns	  []Namespace
 }
 
 func (c *pathCompiler) errorf(format string, args ...interface{}) error {
@@ -425,26 +447,45 @@ func (c *pathCompiler) parsePath() (path *Path, err error) {
 			} else {
 				if c.skipByte(':') {
 					if !c.skipByte(':') {
-						return nil, c.errorf("missing ':'")
-					}
-					switch step.name {
-					case "attribute":
-						step.kind = attrNode
-					case "self", "child", "parent":
-					case "descendant", "descendant-or-self":
-					case "ancestor", "ancestor-or-self":
-					case "following", "following-sibling":
-					case "preceding", "preceding-sibling":
-					default:
-						return nil, c.errorf("unsupported axis: %q", step.name)
-					}
-					step.axis = step.name
+						mark = c.i
+						if c.skipName() {
+							step.prefix = step.name
+							step.name = c.path[mark:c.i]
+							// check prefix
+							found := false
+							for _, ns := range c.ns {
+								if ns.Prefix == step.prefix {
+									step.uri = ns.Uri
+									found = true
+									break
+								}
+							}
+							if !found {
+								return nil, c.errorf("unknown namespace prefix: %s", step.prefix)
+							}
+						} else {
+							return nil, c.errorf("missing name after namespace prefix")
+						}
+					} else {
+						switch step.name {
+						case "attribute":
+							step.kind = attrNode
+						case "self", "child", "parent":
+						case "descendant", "descendant-or-self":
+						case "ancestor", "ancestor-or-self":
+						case "following", "following-sibling":
+						case "preceding", "preceding-sibling":
+						default:
+							return nil, c.errorf("unsupported axis: %q", step.name)
+						}
+						step.axis = step.name
 
-					mark = c.i
-					if !c.skipName() {
-						return nil, c.errorf("missing name")
+						mark = c.i
+						if !c.skipName() {
+							return nil, c.errorf("missing name")
+						}
+						step.name = c.path[mark:c.i]
 					}
-					step.name = c.path[mark:c.i]
 				}
 				if c.skipByte('(') {
 					conflict := step.kind != anyNode

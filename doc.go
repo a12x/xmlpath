@@ -17,7 +17,8 @@
 //     - All node types except for namespace are supported
 //     - Predicates are restricted to [N], [path], and [path=literal] forms
 //     - Only a single predicate is supported per path step
-//     - Richer expressions and namespaces are not supported
+//     - Namespaces are experimentally supported
+//     - Richer expressions
 //
 // For example, assuming the following document:
 //
@@ -70,4 +71,25 @@
 //             fmt.Println("Found:", value)
 //     }
 //
+// To use xmlpath with namespaces, it is required to give the supported set of namespace
+// when compiling:
+// 
+// 
+//    var namespaces = []xmlpath.Namespace {
+//        { "s", "http://www.w3.org/2003/05/soap-envelope" },
+//        { "a", "http://schemas.xmlsoap.org/ws/2004/08/addressing" },
+//    }
+//    path, err := xmlpath.CompileWithNamespace("/s:Header/a:To", namespaces)
+//    if err != nil {
+//            log.Fatal(err)
+//    }
+//    root, err := xmlpath.Parse(file)
+//    if err != nil {
+//            log.Fatal(err)
+//    }
+//    if value, ok := path.String(root); ok {
+//            fmt.Println("Found:", value)
+//    }
+// 
+
 package xmlpath
